@@ -5,33 +5,22 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.puito.cryptoapp.data.AppRepository
-import com.puito.cryptoapp.data.model.Candle
 import com.puito.cryptoapp.data.model.Interval
-import com.puito.cryptoapp.data.model.SignalMark
 import com.puito.cryptoapp.service.StrategyMonitorService
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -157,7 +146,7 @@ fun HomeScreen(
         }
 
         Text(
-            "图表可左右滑动 · 绿三角B / 红三角S",
+            "坐标轴 · 双指缩放 · 拖动平移 · 双击重置 · 绿B/红S",
             modifier = Modifier.padding(horizontal = 12.dp),
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.secondary,
@@ -169,7 +158,7 @@ fun HomeScreen(
                 signals = if (running) repo.signals else emptyList(),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(280.dp)
+                    .height(300.dp)
                     .padding(8.dp),
             )
         }
@@ -238,123 +227,6 @@ private fun IntervalPicker(value: Interval, onChange: (Interval) -> Unit) {
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             Interval.entries.forEach {
                 DropdownMenuItem(text = { Text(it.code) }, onClick = { onChange(it); expanded = false })
-            }
-        }
-    }
-}
-
-/**
- * 可横向滑动的 K 线 + 明确的 B/S 标签（三角 + 文字）。
- */
-@Composable
-fun ScrollableCandleChart(
-    candles: List<Candle>,
-    signals: List<SignalMark>,
-    modifier: Modifier = Modifier,
-) {
-    val bull = Color(0xFF0ECB81)
-    val bear = Color(0xFFF6465D)
-    val density = LocalDensity.current
-    val candleWidthPx = with(density) { 14.dp.toPx() }
-    val scroll = rememberScrollState()
-
-    // 默认滚到最新（最右侧）
-    LaunchedEffect(candles.size) {
-        if (candles.isNotEmpty()) {
-            scroll.scrollTo(scroll.maxValue)
-        }
-    }
-
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = Color(0xFF12161C))) {
-        if (candles.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("暂无 K 线", color = Color.Gray)
-            }
-        } else {
-            val chartWidthDp = with(density) {
-                (candles.size * candleWidthPx).toDp().coerceAtLeast(300.dp)
-            }
-            Box(Modifier.fillMaxSize().horizontalScroll(scroll)) {
-                Canvas(
-                    Modifier
-                        .width(chartWidthDp)
-                        .fillMaxHeight()
-                        .padding(vertical = 28.dp, horizontal = 4.dp),
-                ) {
-                    val data = candles
-                    val maxH = data.maxOf { it.high }
-                    val minL = data.minOf { it.low }
-                    val range = (maxH - minL).coerceAtLeast(1e-6)
-                    val w = size.width / data.size
-                    val padTop = 8f
-                    val padBot = 8f
-                    val usableH = size.height - padTop - padBot
-
-                    fun yPrice(p: Double): Float =
-                        (padTop + ((maxH - p) / range * usableH)).toFloat()
-
-                    data.forEachIndexed { i, c ->
-                        val x = i * w + w / 2
-                        val yHigh = yPrice(c.high)
-                        val yLow = yPrice(c.low)
-                        val yOpen = yPrice(c.open)
-                        val yClose = yPrice(c.close)
-                        val col = if (c.close >= c.open) bull else bear
-                        drawLine(col, Offset(x, yHigh), Offset(x, yLow), strokeWidth = 2f)
-                        val top = minOf(yOpen, yClose)
-                        val bot = maxOf(yOpen, yClose)
-                        drawRect(
-                            col,
-                            Offset(x - w * 0.35f, top),
-                            Size(w * 0.7f, max(2f, bot - top)),
-                        )
-                    }
-
-                    val sigMap = signals.groupBy { it.openTime }
-                    val textPaintB = android.graphics.Paint().apply {
-                        color = android.graphics.Color.parseColor("#0ECB81")
-                        textAlign = android.graphics.Paint.Align.CENTER
-                        textSize = 28f
-                        isFakeBoldText = true
-                        isAntiAlias = true
-                    }
-                    val textPaintS = android.graphics.Paint().apply {
-                        color = android.graphics.Color.parseColor("#F6465D")
-                        textAlign = android.graphics.Paint.Align.CENTER
-                        textSize = 28f
-                        isFakeBoldText = true
-                        isAntiAlias = true
-                    }
-
-                    data.forEachIndexed { i, c ->
-                        val marks = sigMap[c.openTime] ?: return@forEachIndexed
-                        val x = i * w + w / 2
-                        marks.forEach { s ->
-                            if (s.side == "B") {
-                                val y = yPrice(c.low) + 6f
-                                // 向上指的三角在 K 线下方
-                                val path = androidx.compose.ui.graphics.Path().apply {
-                                    moveTo(x, y)
-                                    lineTo(x - 10f, y + 18f)
-                                    lineTo(x + 10f, y + 18f)
-                                    close()
-                                }
-                                drawPath(path, bull)
-                                drawContext.canvas.nativeCanvas.drawText("B", x, y + 40f, textPaintB)
-                            } else {
-                                val y = yPrice(c.high) - 6f
-                                val path = androidx.compose.ui.graphics.Path().apply {
-                                    moveTo(x, y)
-                                    lineTo(x - 10f, y - 18f)
-                                    lineTo(x + 10f, y - 18f)
-                                    close()
-                                }
-                                drawPath(path, bear)
-                                drawContext.canvas.nativeCanvas.drawText("S", x, y - 24f, textPaintS)
-                            }
-                        }
-                    }
-                }
             }
         }
     }
