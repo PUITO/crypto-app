@@ -1,5 +1,9 @@
 # Crypto App（Android 本地）
 
+> **重要：** 每次推送到 `master` 都会自动构建，并**覆盖** Release [`dev-latest`](https://github.com/PUITO/crypto-app/releases/tag/dev-latest)。  
+> 安装前建议卸载旧包；看 Release 标题中的 version / commit 是否为最新。
+
+
 本地运行的事件合约模拟 App：**拉 K 线 → 指标配置信号 → 回测/模拟**，不依赖自建服务器。
 
 ## 功能

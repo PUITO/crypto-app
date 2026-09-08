@@ -23,6 +23,21 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Bump version for this build
+        id: ver
+        run: |
+          # 每次 CI 用 run_number 提高 versionCode，避免手机当成同一安装包
+          CODE="${{ github.run_number }}"
+          NAME="0.1.${CODE}"
+          SHA="${GITHUB_SHA:0:7}"
+          echo "code=$CODE" >> $GITHUB_OUTPUT
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          # 写入 gradle
+          sed -i "s/versionCode = [0-9]*/versionCode = $CODE/" app/build.gradle.kts
+          sed -i "s/versionName = \".*\"/versionName = \"$NAME\"/" app/build.gradle.kts
+          grep -n "versionCode\|versionName" app/build.gradle.kts
+
       - name: Grant execute (if wrapper present)
         run: chmod +x gradlew 2>/dev/null || true
 
@@ -34,47 +49,67 @@ jobs:
             gradle wrapper --gradle-version 8.7
             ./gradlew assembleDebug --stacktrace
           fi
-          echo "APK files:"
-          find app/build/outputs/apk -name "*.apk" -ls
+          mkdir -p dist
+          SRC=$(find app/build/outputs/apk -name "*.apk" | head -1)
+          OUT="crypto-app-${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.sha }}.apk"
+          cp "$SRC" "dist/$OUT"
+          cp "$SRC" dist/app-debug.apk
+          ls -la dist/
+          echo "apk_name=$OUT" >> $GITHUB_OUTPUT
+          echo "APK_NAME=$OUT" >> $GITHUB_ENV
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: crypto-app-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: crypto-app-${{ steps.ver.outputs.name }}
+          path: dist/*.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish to GitHub Release (dev-latest)
+      - name: Delete previous dev-latest release assets (force refresh)
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 删除旧 tag/release，确保页面看到的是新包
+          gh release delete dev-latest --repo "${{ github.repository }}" --yes 2>/dev/null || true
+          git push origin :refs/tags/dev-latest 2>/dev/null || true
+
+      - name: Publish GitHub Release (always new APK)
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: dev-latest
-          name: Dev Latest APK
+          name: "Dev ${{ steps.ver.outputs.name }} (${{ steps.ver.outputs.sha }})"
           prerelease: true
           generate_release_notes: false
           body: |
-            自动构建的 Debug APK（可直接下载安装）。
-            - 包名: com.puito.cryptoapp.debug
-            - 需允许「未知来源」安装
-            - 对应提交: ${{ github.sha }}
-          files: app/build/outputs/apk/debug/*.apk
+            ## 本次自动构建
+            - **versionName:** `${{ steps.ver.outputs.name }}`
+            - **versionCode:** `${{ steps.ver.outputs.code }}`
+            - **commit:** `${{ github.sha }}`
+            - **时间:** ${{ github.event.head_commit.timestamp || github.run_id }}
+
+            ### 安装
+            1. 下载下方 Assets 中的 `app-debug.apk` 或带版本号的 apk
+            2. **建议先卸载旧版**再装（包名 `com.puito.cryptoapp.debug`）
+            3. 允许未知来源
+
+            每次 push 到 master 都会重新构建并覆盖本 Release。
+          files: |
+            dist/app-debug.apk
+            dist/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Summary — 如何下载
+      - name: Summary
         run: |
           {
-            echo "### APK 在哪里下载？"
+            echo "### 新 APK 已发布"
+            echo "- version: **${{ steps.ver.outputs.name }}** (code ${{ steps.ver.outputs.code }})"
+            echo "- commit: \`${{ github.sha }}\`"
+            echo "- Release: https://github.com/${{ github.repository }}/releases/tag/dev-latest"
+            echo "- Artifact: crypto-app-${{ steps.ver.outputs.name }}"
             echo ""
-            echo "#### 方法 1：本页 Artifacts（需登录有权限的账号）"
-            echo "1. 打开本 Workflow 运行页（当前页面）"
-            echo "2. 滚到页面最下方 **Artifacts**"
-            echo "3. 点击 **crypto-app-debug** 下载 zip，解压得到 .apk"
-            echo ""
-            echo "#### 方法 2：Releases（更直观，推荐）"
-            echo "- 打开: https://github.com/${{ github.repository }}/releases/tag/dev-latest"
-            echo "- 在 Assets 里下载 .apk"
-            echo ""
-            echo "注意：Artifacts 默认只保留约 30 天；Release \`dev-latest\` 会被每次成功构建覆盖更新。"
+            echo "若手机仍是旧版：请卸载后重装，或检查下载的是否为最新 Release。"
           } >> "$GITHUB_STEP_SUMMARY"
