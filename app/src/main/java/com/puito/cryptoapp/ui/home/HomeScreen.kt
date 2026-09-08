@@ -163,19 +163,31 @@ fun HomeScreen(
             )
         }
 
-        val st = repo.stats
+        // 统计 = 全部模拟成交（不是下面列表的 5 条）
+        val allTrades = repo.trades
+        val st = remember(tick, allTrades.size, running) {
+            val wins = allTrades.count { it.win }
+            val losses = allTrades.size - wins
+            com.puito.cryptoapp.data.model.BacktestStats(
+                signals = allTrades.size,
+                wins = wins,
+                losses = losses,
+                winRate = if (allTrades.isEmpty()) 0.0 else wins.toDouble() / allTrades.size,
+                totalReturnPct = allTrades.sumOf { it.pnlPct },
+            )
+        }
         Text(
-            "统计：成交 ${st.signals} | 胜 ${st.wins} | 负 ${st.losses} | 胜率 ${"%.1f".format(st.winRate * 100)}% | 收益 ${"%.2f".format(st.totalReturnPct)}%",
+            "统计（全部 ${allTrades.size} 笔模拟）：胜 ${st.wins} | 负 ${st.losses} | 胜率 ${"%.1f".format(st.winRate * 100)}% | 累计收益 ${"%.2f".format(st.totalReturnPct)}%",
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             fontSize = 13.sp,
         )
 
         Text(
-            "交易历史（${interval.code}，最近 5 条）",
+            "交易历史（${interval.code}，仅展示最近 5 / 共 ${allTrades.size} 笔）",
             modifier = Modifier.padding(horizontal = 12.dp),
             fontWeight = FontWeight.SemiBold,
         )
-        val rows = repo.trades.takeLast(5).reversed()
+        val rows = allTrades.takeLast(5).reversed()
         LazyColumn(Modifier.padding(12.dp)) {
             items(rows, key = { it.id }) { t ->
                 val fmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }

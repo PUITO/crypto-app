@@ -81,7 +81,7 @@ class AppRepository(context: Context) {
         marks.forEach { notifiedSignalKeys.add(signalKey(symbol, interval.code, it)) }
         val (t, st) = sim.backtest(candles, marks, symbol, interval.code, holdBars = 1)
         trades = t
-        stats = st
+        stats = recomputeStatsFromTrades()
         strategyRunning = true
         prefs.edit()
             .putString("sim_${interval.code}", gson.toJson(t))
@@ -113,7 +113,10 @@ class AppRepository(context: Context) {
             val type = object : TypeToken<List<SimTrade>>() {}.type
             trades = runCatching { gson.fromJson<List<SimTrade>>(tjson, type) }.getOrDefault(emptyList())
         }
-        if (sjson != null) {
+        // 以全部 trades 为准重算，避免与只展示 5 条的列表混淆
+        if (trades.isNotEmpty()) {
+            recomputeStatsFromTrades()
+        } else if (sjson != null) {
             stats = runCatching { gson.fromJson(sjson, BacktestStats::class.java) }.getOrDefault(BacktestStats())
         }
     }
@@ -130,10 +133,10 @@ class AppRepository(context: Context) {
         signals = marks
         val (t, st) = sim.backtest(candles, marks, symbol, interval.code, holdBars = 1)
         trades = t
-        stats = st
+        stats = recomputeStatsFromTrades()
         prefs.edit()
             .putString("sim_${interval.code}", gson.toJson(t))
-            .putString("stats_${interval.code}", gson.toJson(st))
+            .putString("stats_${interval.code}", gson.toJson(stats))
             .apply()
 
         val fresh = mutableListOf<SignalMark>()
@@ -148,6 +151,23 @@ class AppRepository(context: Context) {
             }
         }
         return fresh
+    }
+
+
+    /** 统计始终基于全部模拟成交，与列表是否只显示 5 条无关 */
+    fun recomputeStatsFromTrades(): BacktestStats {
+        val all = trades
+        val wins = all.count { it.win }
+        val losses = all.size - wins
+        val st = BacktestStats(
+            signals = all.size,
+            wins = wins,
+            losses = losses,
+            winRate = if (all.isEmpty()) 0.0 else wins.toDouble() / all.size,
+            totalReturnPct = all.sumOf { it.pnlPct },
+        )
+        stats = st
+        return st
     }
 
     private fun signalKey(symbol: String, interval: String, m: SignalMark) =
