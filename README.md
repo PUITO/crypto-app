@@ -10,6 +10,28 @@
 - **启动策略**时历史回测；**停止**清除模拟数据
 - 图表标记 **B / S**；交易历史默认 5 条
 
+
+## 下载 APK（构建产物在哪）
+
+构建成功后有两种下载方式：
+
+### 1. Actions Artifacts（需登录）
+
+1. 打开 [Actions → Build Android APK](https://github.com/PUITO/crypto-app/actions/workflows/android.yml)
+2. 点进**最新一次成功**的 run
+3. 页面**最底部**找到 **Artifacts** → 点 **crypto-app-debug** 下载 zip
+4. 解压得到 `.apk`
+
+> 若页面没有 Artifacts：说明该次构建失败，或你未登录/没有仓库读取权限。
+
+### 2. Releases（推荐，更明显）
+
+打开：**https://github.com/PUITO/crypto-app/releases/tag/dev-latest**  
+
+在 **Assets** 中直接下载 APK（每次成功构建会更新此预发布）。
+
+安装：手机开启「允许安装未知应用」，包名 `com.puito.cryptoapp.debug`。
+
 ## 用 GitHub Actions 构建 APK
 
 可以。仓库已包含工作流 **Build Android APK**（`.github/workflows/android.yml`）：

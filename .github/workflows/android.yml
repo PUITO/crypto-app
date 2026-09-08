@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,16 +34,47 @@ jobs:
             gradle wrapper --gradle-version 8.7
             ./gradlew assembleDebug --stacktrace
           fi
+          echo "APK files:"
+          find app/build/outputs/apk -name "*.apk" -ls
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: crypto-app-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
 
-      - name: Summary
+      - name: Publish to GitHub Release (dev-latest)
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-latest
+          name: Dev Latest APK
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            自动构建的 Debug APK（可直接下载安装）。
+            - 包名: com.puito.cryptoapp.debug
+            - 需允许「未知来源」安装
+            - 对应提交: ${{ github.sha }}
+          files: app/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary — 如何下载
         run: |
-          echo "### Android Debug APK" >> $GITHUB_STEP_SUMMARY
-          echo "Artifact: **crypto-app-debug**" >> $GITHUB_STEP_SUMMARY
-          echo "Download from this run's Artifacts section." >> $GITHUB_STEP_SUMMARY
-          ls -la app/build/outputs/apk/debug/ || true
+          {
+            echo "### APK 在哪里下载？"
+            echo ""
+            echo "#### 方法 1：本页 Artifacts（需登录有权限的账号）"
+            echo "1. 打开本 Workflow 运行页（当前页面）"
+            echo "2. 滚到页面最下方 **Artifacts**"
+            echo "3. 点击 **crypto-app-debug** 下载 zip，解压得到 .apk"
+            echo ""
+            echo "#### 方法 2：Releases（更直观，推荐）"
+            echo "- 打开: https://github.com/${{ github.repository }}/releases/tag/dev-latest"
+            echo "- 在 Assets 里下载 .apk"
+            echo ""
+            echo "注意：Artifacts 默认只保留约 30 天；Release \`dev-latest\` 会被每次成功构建覆盖更新。"
+          } >> "$GITHUB_STEP_SUMMARY"
