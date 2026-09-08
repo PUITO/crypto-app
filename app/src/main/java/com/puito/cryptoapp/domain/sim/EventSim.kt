@@ -4,8 +4,7 @@ import com.puito.cryptoapp.data.model.*
 import java.util.UUID
 
 /**
- * 事件合约模拟：信号出现在 i 根，以下一根开盘入场，持有 holdBars 根后按收盘结算。
- * holdBars：5m→1, 10m→1（一根即对应时长）, 30m→1, 1h→1（周期=事件时长，方案 A）
+ * 事件合约模拟：信号在 i 根出现，以下一根开盘入场，持有 holdBars 根后按收盘结算。
  */
 class EventSim {
     fun backtest(
@@ -21,7 +20,8 @@ class EventSim {
         var i = 0
         while (i < signals.size) {
             val sig = signals[i]
-            val idx = byTime[sig.openTime] ?: run {
+            val idx = byTime[sig.openTime]
+            if (idx == null) {
                 i++
                 continue
             }
@@ -53,7 +53,6 @@ class EventSim {
                     win = pnl > 0,
                 )
             )
-            // 有持仓期间跳过重叠信号
             val exitTime = exit.openTime
             while (i < signals.size && signals[i].openTime <= exitTime) i++
         }

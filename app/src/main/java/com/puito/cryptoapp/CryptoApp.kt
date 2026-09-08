@@ -1,6 +1,7 @@
 package com.puito.cryptoapp
 
 import android.app.Application
+import com.puito.cryptoapp.data.AppRepository
 
 class CryptoApp : Application() {
     lateinit var repository: AppRepository
