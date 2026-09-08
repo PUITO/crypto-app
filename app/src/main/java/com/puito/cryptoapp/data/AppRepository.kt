@@ -27,6 +27,9 @@ class AppRepository(context: Context) {
     var strategyRunning: Boolean = false
         private set
 
+    /** 已通知过的信号 openTime，避免重复通知 */
+    private val notifiedSignalKeys = mutableSetOf<String>()
+
     fun loadSettings(): AppSettings {
         val json = prefs.getString("settings", null) ?: return AppSettings()
         return runCatching { gson.fromJson(json, AppSettings::class.java) }.getOrDefault(AppSettings())
@@ -73,11 +76,13 @@ class AppRepository(context: Context) {
         if (candles.isEmpty()) return Result.failure(IllegalStateException("请先加载 K 线"))
         val marks = engine.generateSignals(candles, cfg)
         signals = marks
+        // 启动时回测产生的历史信号不弹通知，只标记已见
+        notifiedSignalKeys.clear()
+        marks.forEach { notifiedSignalKeys.add(signalKey(symbol, interval.code, it)) }
         val (t, st) = sim.backtest(candles, marks, symbol, interval.code, holdBars = 1)
         trades = t
         stats = st
         strategyRunning = true
-        // 按 interval 隔离存储模拟数据
         prefs.edit()
             .putString("sim_${interval.code}", gson.toJson(t))
             .putString("stats_${interval.code}", gson.toJson(st))
@@ -91,6 +96,7 @@ class AppRepository(context: Context) {
         signals = emptyList()
         trades = emptyList()
         stats = BacktestStats()
+        notifiedSignalKeys.clear()
         prefs.edit()
             .remove("sim_${interval.code}")
             .remove("stats_${interval.code}")
@@ -111,4 +117,39 @@ class AppRepository(context: Context) {
             stats = runCatching { gson.fromJson(sjson, BacktestStats::class.java) }.getOrDefault(BacktestStats())
         }
     }
+
+    /**
+     * 后台轮询：刷新 K 线，重算信号，返回「新出现」的信号（用于通知）。
+     */
+    suspend fun pollAndDetectNewSignals(symbol: String, interval: Interval): List<SignalMark> {
+        if (!strategyRunning) return emptyList()
+        val cfg = enabledConfig() ?: return emptyList()
+        val limit = loadSettings().defaultLimit
+        refreshCandles(symbol, interval, limit)
+        val marks = engine.generateSignals(candles, cfg)
+        signals = marks
+        val (t, st) = sim.backtest(candles, marks, symbol, interval.code, holdBars = 1)
+        trades = t
+        stats = st
+        prefs.edit()
+            .putString("sim_${interval.code}", gson.toJson(t))
+            .putString("stats_${interval.code}", gson.toJson(st))
+            .apply()
+
+        val fresh = mutableListOf<SignalMark>()
+        // 只通知最近几根上的新信号，避免刷屏
+        val recentTimes = candles.takeLast(5).map { it.openTime }.toSet()
+        for (m in marks) {
+            if (m.openTime !in recentTimes) continue
+            val key = signalKey(symbol, interval.code, m)
+            if (key !in notifiedSignalKeys) {
+                notifiedSignalKeys.add(key)
+                fresh.add(m)
+            }
+        }
+        return fresh
+    }
+
+    private fun signalKey(symbol: String, interval: String, m: SignalMark) =
+        "$symbol|$interval|${m.openTime}|${m.side}"
 }
